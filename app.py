@@ -8,13 +8,11 @@ import requests
 from datetime import datetime
 
 # --- 核心配置 ---
-GOOGLE_API_KEY = "AIzaSyDFdrO6Hx1qpZbUDXLPwkcuU3kgb3f2h0U"
-# 强制使用最基础的配置
+# 已经换上你刚才给我的新 API Key
+GOOGLE_API_KEY = "AIzaSyCAdCBSfHY9FtvAQnNPSYJHqQPLygMj8S0"
 genai.configure(api_key=GOOGLE_API_KEY)
 
-st.set_page_config(page_title="AI 智能记账终极版", layout="centered")
-
-# --- 数据库连接 ---
+st.set_page_config(page_title="AI 智能记账 (正式版)", layout="centered")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_jpy_to_cny():
@@ -34,61 +32,58 @@ def save_to_sheet(date, store, amount, cat):
     conn.update(data=updated_df)
     return cny_val
 
-# --- 主界面 ---
 st.title("💹 AI 智能记账 (全能版)")
 
-mode = st.radio("选择方式：", ["📷 拍照", "✍️ 手动", "🤖 说话"])
+mode = st.radio("选择方式：", ["📷 拍照识别", "✍️ 手动录入", "🤖 智能话语"])
 
-if mode == "📷 拍照":
-    uploaded_file = st.file_uploader("拍摄收据", type=["jpg", "jpeg", "png"])
-    if uploaded_file and st.button("开始识别"):
-        with st.spinner("AI 识别中..."):
+if mode == "📷 拍照识别":
+    uploaded_file = st.file_uploader("上传收据", type=["jpg", "jpeg", "png"])
+    if uploaded_file and st.button("开始 AI 识别"):
+        with st.spinner("AI 正在努力看图..."):
             try:
-                # 尝试用最稳妥的方式定义模型
+                # 使用最标准的模型路径
                 model = genai.GenerativeModel('gemini-1.5-flash')
-                prompt = 'Analyze receipt and return JSON ONLY: {"date": "YYYY-MM-DD", "store": "name", "amount": number, "cat": "food/transport/other"}'
+                prompt = 'Return JSON ONLY: {"date": "YYYY-MM-DD", "store": "name", "amount": number, "cat": "food/other"}'
                 response = model.generate_content([prompt, Image.open(uploaded_file)])
-                # 强行提取 JSON 部分
-                content = response.text
-                if "{" in content:
-                    json_str = content[content.find("{"):content.rfind("}")+1]
-                    res = json.loads(json_str)
-                    cny = save_to_sheet(res['date'], res['store'], res['amount'], res['cat'])
-                    st.success(f"✅ 记账成功！折合 ￥{cny}")
-                else:
-                    st.error("AI 返回内容格式不符，请重试")
+                
+                res_text = response.text
+                # 强行定位 JSON 内容
+                res = json.loads(res_text[res_text.find("{"):res_text.rfind("}")+1])
+                
+                cny = save_to_sheet(res['date'], res['store'], res['amount'], res['cat'])
+                st.success(f"✅ 记账成功！折合 ￥{cny}")
             except Exception as e:
-                st.error(f"识别失败: {str(e)}")
+                st.error(f"识别失败，请稍后重试: {e}")
 
-elif mode == "✍️ 手动":
-    with st.form("m"):
-        d = st.date_input("日期")
-        s = st.text_input("店名")
-        a = st.number_input("日元金额", min_value=1)
-        c = st.selectbox("分类", ["饮食", "交通", "日用品", "娱乐", "其他"])
+elif mode == "✍️ 手动录入":
+    with st.form("manual"):
+        d, s = st.columns(2)
+        date = d.date_input("日期")
+        store = s.text_input("店名")
+        amount = st.number_input("日元金额", min_value=1)
+        cat = st.selectbox("分类", ["饮食", "交通", "日用品", "娱乐", "其他"])
         if st.form_submit_button("确认存入"):
-            cny = save_to_sheet(str(d), s, a, c)
+            cny = save_to_sheet(str(date), store, amount, cat)
             st.success(f"✅ 录入成功！折合 ￥{cny}")
 
-elif mode == "🤖 说话":
-    t = st.text_input("比如：在全家花了500")
+elif mode == "🤖 智能话语":
+    t = st.text_input("想记什么？", placeholder="比如：在草加松屋吃了800日元")
     if st.button("AI 解析") and t:
-        with st.spinner("思考中..."):
+        with st.spinner("AI 正在思考..."):
             try:
                 model = genai.GenerativeModel('gemini-1.5-flash')
-                prompt = f'Return JSON ONLY for: "{t}". Format: {{"date": "{datetime.now().strftime("%Y-%m-%d")}", "store": "name", "amount": number, "cat": "category"}}'
+                prompt = f'Return JSON ONLY for: "{t}". Format: {{"date": "{datetime.now().strftime("%Y-%m-%d")}", "store": "name", "amount": number, "cat": "food/other"}}'
                 response = model.generate_content(prompt)
-                content = response.text
-                json_str = content[content.find("{"):content.rfind("}")+1]
-                res = json.loads(json_str)
+                res_text = response.text
+                res = json.loads(res_text[res_text.find("{"):res_text.rfind("}")+1])
                 cny = save_to_sheet(res['date'], res['store'], res['amount'], res['cat'])
-                st.success(f"🤖 AI 已记下：{res['store']} {res['amount']}日元")
+                st.success(f"🤖 AI 记下了：{res['store']} {res['amount']}日元")
             except Exception as e:
-                st.error(f"解析失败: {str(e)}")
+                st.error(f"解析失败: {e}")
 
 st.divider()
-if st.checkbox("🔍 查看账单"):
+if st.checkbox("🔍 查看历史"):
     try:
         st.dataframe(conn.read().sort_index(ascending=False), use_container_width=True)
     except:
-        st.info("连接中...")
+        st.info("连接云端表格中...")
